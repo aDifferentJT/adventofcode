@@ -1,6 +1,7 @@
 
-import Debug.Trace (trace)
+import Data.List (minimumBy)
 import Data.List.Split (chunksOf)
+import Data.Ord (comparing)
 
 type Image = [Layer]
 type Layer = [Row]
@@ -13,15 +14,7 @@ countNs :: Int -> Layer -> Int
 countNs n = length . filter (== n) . concat
 
 minimumWith :: Ord o => (a -> o) -> [a] -> a
-minimumWith f = fst . minimumWith' f
-  where minimumWith' :: Ord o => (a -> o) -> [a] -> (a, o)
-        minimumWith' f [x]    = (x, f x)
-        minimumWith' f (x:xs) =
-          let fx = f x in
-          let (y, fy) = minimumWith' f xs in
-          if fx <= fy
-          then (x, fx)
-          else (y, fy)
+minimumWith f = minimumBy . comparing
 
 layerWithFewest0s :: Image -> Layer
 layerWithFewest0s = minimumWith (countNs 0)
