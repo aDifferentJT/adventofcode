@@ -8,6 +8,8 @@ import Data.List.Split (splitOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Ord (comparing)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -28,52 +30,22 @@ getBoundingBox cs = Box
   , bottom = maximum . map snd $ cs
   }
 
-isLineThroughNw :: [Coord] -> [Coord] -> Coord -> Bool
-isLineThroughNw ne sw (xc, yc) = or
-  [ let x1 = fromIntegral $ x1' - xc in
-    let y1 = fromIntegral $ y1' - yc in
-    let x2 = fromIntegral $ x2' - xc in
-    let y2 = fromIntegral $ y2' - yc in
-    y2 * (x1 - x2) / (y1 - y2) > x2
-    | (x1', y1') <- ne, (x2', y2') <- sw
+boundaries :: Box -> [Coord]
+boundaries Box{..} = concat
+  [ [ (left, y) | y <- [top + 1 .. bottom - 1] ]
+  , [ (right, y) | y <- [top + 1 .. bottom - 1] ]
+  , [ (x, top) | x <- [left + 1 .. right - 1] ]
+  , [ (x, bottom) | x <- [left + 1 .. right - 1] ]
+  , [ (left, top)
+    , (left, bottom)
+    , (right, top)
+    , (right, bottom)
+    ]
   ]
-
-isLineThroughNe :: [Coord] -> [Coord] -> Coord -> Bool
-isLineThroughNe nw se c = isLineThroughNw (map (first negate) nw) (map (first negate) se) (first negate c)
-
-isLineThroughSe :: [Coord] -> [Coord] -> Coord -> Bool
-isLineThroughSe ne sw c = isLineThroughNw (map (negate *** negate) sw) (map (negate *** negate) ne) ((negate *** negate) c)
-
-isLineThroughSw :: [Coord] -> [Coord] -> Coord -> Bool
-isLineThroughSw nw se c = isLineThroughNw (map (second negate) se) (map (second negate) nw) (second negate c)
-
-isStrictlyWithinHull :: [Coord] -> Coord -> Bool
-isStrictlyWithinHull cs c@(x, y) =
-  let nwQuad = filter (\(x', y') -> x' < x && y' < y) cs in
-  let neQuad = filter (\(x', y') -> x' > x && y' < y) cs in
-  let seQuad = filter (\(x', y') -> x' > x && y' > y) cs in
-  let swQuad = filter (\(x', y') -> x' < x && y' > y) cs in
-  case (nwQuad, neQuad, seQuad, swQuad) of
-    (_:_, _:_, _:_, _:_) -> True
-    ([], [], _, _) -> False
-    (_, [], [], _) -> False
-    (_, _, [], []) -> False
-    ([], _, _, []) -> False
-    ([], _:_, [], _:_) -> isLineThroughNw neQuad swQuad c && isLineThroughSe neQuad swQuad c
-    (_:_, [], _:_, []) -> isLineThroughNe nwQuad seQuad c && isLineThroughSw nwQuad seQuad c
-    ([], _:_, _:_, _:_) -> isLineThroughNw neQuad swQuad c
-    (_:_, [], _:_, _:_) -> isLineThroughNe nwQuad seQuad c
-    (_:_, _:_, [], _:_) -> isLineThroughSe neQuad swQuad c
-    (_:_, _:_, _:_, []) -> isLineThroughSw nwQuad seQuad c
-
-finiteAreas :: [Coord] -> [Coord]
-finiteAreas cs = filter (isStrictlyWithinHull cs) cs
 
 grid :: Box -> [Coord]
 grid Box{..} =
-  let w = right - left in
-  let h = bottom - top in
-  [(x, y) | x <- [left - w .. right + w], y <- [top - h .. bottom + h]]
+  [(x, y) | x <- [left + 1 .. right - 1], y <- [top + 1 .. bottom - 1]]
 
 taxicab :: Coord -> Coord -> Int
 taxicab (x1, y1) (x2, y2) = abs (x2 - x1) + abs (y2 - y1)
@@ -91,9 +63,13 @@ closest cs c =
 areaGrid :: [Coord] -> Box -> [Coord]
 areaGrid cs = mapMaybe (closest cs) . grid
 
+finiteAreas :: [Coord] -> Box -> [Coord]
+finiteAreas cs = Set.toList . Set.difference (Set.fromList cs) . Set.fromList . mapMaybe (closest cs) . boundaries
+
 countArea :: [Coord] -> Map Coord Int
 countArea cs =
-  foldr (Map.adjust (+1)) (Map.fromList . map (,0) . finiteAreas $ cs) . areaGrid cs . getBoundingBox $ cs
+  let box = getBoundingBox cs in
+  foldr (Map.adjust (+1)) (Map.fromList . map (,0) $ finiteAreas cs box) (areaGrid cs box)
 
 keyWithMaxVal :: forall k a. (Ord k, Ord a) => Map k a -> Maybe k
 keyWithMaxVal = fmap fst . Map.foldrWithKey f Nothing
@@ -179,25 +155,26 @@ showGrid =
   let boxHeight = bottom - top in
   let width = length . show . subtract 1 . length $ coords in
   unlines
-    [ showTopBorder width (boxWidth * 3 + 1)
+    [ showTopBorder width boxWidth
     , intercalate "\n" . intersperseWithAdjacentAndMap (showMiddleBorder width) (showRow width) $
       [ [ let c = (x, y) in
           ( c `elem` coords
           , maybe "." (show . fromJust . flip elemIndex coords) (closest coords c)
           )
-          | x <- [left - boxWidth .. right + boxWidth]
+          | x <- [left..right]
         ]
-        | y <- [top - boxHeight .. bottom + boxHeight]
+        | y <- [top..bottom]
       ]
-    , showBottomBorder width (boxWidth * 3 + 1)
+    , showBottomBorder width boxWidth
     ]
+
+totalDistance :: [Coord] -> Coord -> Int
+totalDistance cs c = sum . map (taxicab c) $ cs
 
 main :: IO ()
 main = do
   let areas = countArea coords
   let Just bestCoord = keyWithMaxVal areas
-  print . elemIndex bestCoord $ coords
   print . Map.lookup bestCoord $ areas
-  mapM_ print . zip [0..] $ coords
-  putStrLn showGrid
+  print . length . filter (< 10000) . map (totalDistance coords) . grid . getBoundingBox $ coords
 
