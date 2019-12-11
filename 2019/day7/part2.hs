@@ -4,7 +4,7 @@ import Control.Arrow ((***))
 import Data.List (permutations)
 import Data.List.Split (splitOn)
 
-type Prog = (Int, [Int], [Int], [Int], [Maybe Int])
+type Prog = (Int, [Int], [Int], [Int], [Int])
 
 getOpcode :: Int -> Int
 getOpcode =
@@ -41,7 +41,7 @@ getInput :: Prog -> (Int, Prog)
 getInput (pc, xs, ys, ~(i:is), os) = (i, (pc, xs, ys, is, os)) -- This lazy pattern match is essential for looping between programs
 
 putOutput :: Int -> Prog -> Prog
-putOutput o (pc, xs, ys, is, os) = (pc, xs, ys, is, os ++ [Just o])
+putOutput o (pc, xs, ys, is, os) = (pc, xs, ys, is, os ++ [o])
 
 runOpcode :: Prog -> (Bool, Prog)
 runOpcode p@(_, s, getOpcodeAndModes -> (1, s1:s2:d:_), _, _) =
@@ -69,14 +69,9 @@ runOpcode p@(_, _, getOpcodeAndModes -> (8, s1:s2:d:_), _, _) =
 runOpcode p@(_, _, 99:ys, _, _) = (False, p)
 runOpcode p = error . show $ p
 
-justPrefix :: [Maybe a] -> [a]
-justPrefix  []          = []
-justPrefix (Nothing:xs) = []
-justPrefix (Just x :xs) = x : justPrefix xs
-
 runProgram' :: Prog -> ([Int], [Int])
 runProgram' (runOpcode -> (True, p)) = runProgram' p
-runProgram' (runOpcode -> (False, (_, xs, ys, _, os))) = (reverse xs ++ ys, justPrefix os)
+runProgram' (runOpcode -> (False, (_, xs, ys, _, os))) = (reverse xs ++ ys, os)
 
 runProgram :: [Int] -> [Int] -> [Int]
 runProgram ys is = snd . runProgram' $ (0, [], ys, is, [])

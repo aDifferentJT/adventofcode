@@ -13,7 +13,7 @@ data Prog = Prog
   , memPrePC :: [Integer]
   , memPostPC :: [Integer]
   , input :: [Integer]
-  , output :: [Maybe Integer]
+  , output :: [Integer]
   }
   deriving Show
 
@@ -75,7 +75,7 @@ getInput :: Prog -> (Integer, Prog)
 getInput Prog{ input = ~(i:is), .. } = (i, Prog { input = is, .. }) -- This lazy pattern match is essential for looping between programs
 
 putOutput :: Prog -> Integer -> Prog
-putOutput Prog{..} o = Prog{ output = output ++ [Just o], .. }
+putOutput Prog{..} o = Prog{ output = output ++ [o], .. }
 
 runOpcode :: Prog -> (Bool, Prog)
 runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (1, s1:s2:d:_)), .. } =
@@ -105,14 +105,9 @@ runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (9, x:_)), .. } =
 runOpcode p@Prog{ memPostPC = 99:ys, .. } = (False, p)
 runOpcode p = error . show $ p
 
-justPrefix :: [Maybe a] -> [a]
-justPrefix  []          = []
-justPrefix (Nothing:xs) = []
-justPrefix (Just x :xs) = x : justPrefix xs
-
 runProgram' :: Prog -> [Integer]
 runProgram' (runOpcode -> (True, p)) = runProgram' p
-runProgram' (runOpcode -> (False, Prog{..})) = justPrefix output
+runProgram' (runOpcode -> (False, Prog{..})) = output
 
 runProgram :: [Integer] -> [Integer] -> [Integer]
 runProgram ys is = runProgram' $ Prog
