@@ -1,6 +1,6 @@
-{-# LANGUAGE FlexibleInstances, NamedFieldPuns, RecordWildCards, ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances, NamedFieldPuns, RecordWildCards, TupleSections, ViewPatterns #-}
 
-module IntCode (ProgIO(..), runProgram, parseProgram) where
+module IntCode (ProgIO(..), runProgram, runProgramLists, parseProgram) where
 
 import Control.Arrow ((***))
 import Data.List (uncons)
@@ -118,10 +118,13 @@ runProgram ys io = runProgram' $ Prog
   , io = io
   }
 
-parseProgram :: String -> [Integer]
-parseProgram = map read . splitOn ","
-
 instance ProgIO ([Integer], [Integer]) where
   getInput (~(i:is), os) = (i, (is, os))
   putOutput o (is, os) = (is, os ++ [o])
+
+runProgramLists :: [Integer] -> [Integer] -> [Integer]
+runProgramLists p = snd . runProgram p . (, [])
+
+parseProgram :: String -> [Integer]
+parseProgram = map read . splitOn ","
 
