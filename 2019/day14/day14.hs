@@ -1,0 +1,93 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+import Control.Arrow ((***), (&&&), first, second)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (fromJust, fromMaybe)
+import Data.String (IsString(fromString))
+import System.IO.Unsafe (unsafePerformIO)
+import Text.Parsec
+import Text.Parsec.Char
+import Text.Parsec.String
+
+parseInteger :: Parser Integer
+parseInteger = read <$> many1 digit
+
+type Chemical = (Integer, String)
+
+parseReactions :: Parser (Map String (Integer, [(String, Integer)]))
+parseReactions = Map.fromList <$> many parseReaction
+  where parseReaction :: Parser (String, (Integer, [(String, Integer)]))
+        parseReaction = do
+          reqList <- parseRequirements
+          spaces
+          string "=>"
+          spaces
+          (c, n) <- parseString
+          endOfLine
+          return (c, (n, reqList))
+        parseRequirements :: Parser [(String, Integer)]
+        parseRequirements = sepBy1 parseString (char ',' >> spaces)
+        parseString :: Parser (String, Integer)
+        parseString = do
+          n <- parseInteger
+          space
+          c <- many1 upper
+          return (c, n)
+
+divCeil :: Integer -> Integer -> Integer
+divCeil x y =
+  let q = div x y in
+  if q * y == x
+  then q
+  else q + 1
+
+calculateNeeded :: Map Chemical (Integer, [(Chemical, Integer)]) -> Map Chemical Integer -> Integer
+calculateNeeded rs needed =
+  case Map.maxViewWithKey needed of
+    Just (((_, "ORE"), amountNeeded), _) -> amountNeeded
+    Just ((chemical, amountNeeded), needed') ->
+      let Just (amountProduced, reqs) = Map.lookup chemical rs in
+      calculateNeeded rs
+      . Map.unionWith (+) needed'
+      . Map.fromList
+      . map (second (* divCeil amountNeeded amountProduced))
+      $ reqs
+
+consumeChemical :: Map String (Integer, [(String, Integer)]) -> String -> Integer -> Map String Integer -> Maybe (Map String Integer)
+consumeChemical rs chemical amountNeeded supplies =
+  let amountGot = fromMaybe 0 . Map.lookup chemical $ supplies in
+  if amountGot >= amountNeeded
+  then return . Map.adjust (subtract amountNeeded) chemical $ supplies
+  else makeChemical rs chemical supplies >>= consumeChemical rs chemical amountNeeded
+
+makeChemical :: Map String (Integer, [(String, Integer)]) -> String -> Map String Integer -> Maybe (Map String Integer)
+makeChemical rs chemical supplies = do
+  (amountProduced, reqs) <- Map.lookup chemical rs
+  supplies' <- foldr ((=<<) . uncurry (consumeChemical rs)) (return supplies) reqs
+  return . Map.insertWith (+) chemical amountProduced $ supplies'
+
+calculatePossible :: Map String (Integer, [(String, Integer)]) -> String -> Map String Integer -> Integer
+calculatePossible rs chemical supplies = case makeChemical rs chemical supplies of
+  Nothing -> 0
+  Just supplies' -> 1 + calculatePossible rs chemical supplies'
+
+{-# NOINLINE reactions #-}
+reactions :: Map String (Integer, [(String, Integer)])
+reactions = either (error . show) id . unsafePerformIO . parseFromFile parseReactions $ "input.txt"
+
+weights :: Map String Integer
+weights = Map.insert "ORE" 0 . Map.fromList . map (id &&& weightOfChemical) . Map.keys $ reactions
+  where weightOfChemical :: String -> Integer
+        weightOfChemical c =
+          let Just (_, reqs) = Map.lookup c reactions in
+          (+1) . maximum . map (fromJust . flip Map.lookup weights . fst) $ reqs
+
+weightedReactions :: Map Chemical (Integer, [(Chemical, Integer)])
+weightedReactions = Map.fromList . map ((fromJust . flip Map.lookup weights &&& id) *** (second . map . first $ fromJust . flip Map.lookup weights &&& id)) . Map.toList $ reactions
+
+main :: IO ()
+main = do
+  print . calculateNeeded weightedReactions . Map.fromList $ [((fromJust . Map.lookup "FUEL" $ weights, "FUEL"), 1)]
+  print . calculatePossible reactions "FUEL" . Map.fromList $ [("ORE", 1000000000000)]
+
