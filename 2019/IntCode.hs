@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, NamedFieldPuns, RecordWildCards, TupleSections, ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances, LambdaCase, MultiParamTypeClasses, NamedFieldPuns, RecordWildCards, TupleSections, ViewPatterns #-}
 
 module IntCode (ProgIO(..), MonadicProgIO(..), runProgram, runProgramM, runProgramLists, parseProgram) where
 
@@ -9,12 +9,12 @@ import Data.List.Split (splitOn)
 import Data.Maybe (fromMaybe)
 
 class ProgIO a where
-  getInput :: a -> (Integer, a)
-  putOutput :: Integer -> a -> a
+  getInput :: a -> (Maybe Integer, a)
+  putOutput :: Integer -> a -> (Bool, a)
 
 class MonadicProgIO m a where
-  getInputM :: a -> m (Integer, a)
-  putOutputM :: Integer -> a -> m a
+  getInputM :: a -> m (Maybe Integer, a)
+  putOutputM :: Integer -> a -> m (Bool, a)
 
 instance ProgIO a => MonadicProgIO Identity a where
   getInputM = return . getInput
@@ -32,11 +32,11 @@ data Prog a = Prog
 setIO :: Prog a -> a -> Prog a
 setIO p io = p{io}
 
-getInputProg :: (MonadicProgIO m a, Monad m) => Prog a -> m (Integer, Prog a)
+getInputProg :: (MonadicProgIO m a, Monad m) => Prog a -> m (Maybe Integer, Prog a)
 getInputProg p = second (setIO p) <$> getInputM (io p)
 
-putOutputProg :: (MonadicProgIO m a, Monad m) => Integer -> Prog a -> m (Prog a)
-putOutputProg o p = setIO p <$> putOutputM o (io p)
+putOutputProg :: (MonadicProgIO m a, Monad m) => Integer -> Prog a -> m (Bool, Prog a)
+putOutputProg o p = second (setIO p) <$> putOutputM o (io p)
 
 getOpcode :: Integer -> Integer
 getOpcode =
@@ -100,9 +100,11 @@ runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (2, s1:s2:d:_)), .. } =
     let res = getValue s1 p * getValue s2 p in
     return (True, incPC 4 . putValue d res $ p)
 runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (3, d:_)), .. } =
-    (True,) . incPC 2 . uncurry (putValue d) <$> getInputProg p
+    flip fmap (getInputProg p) $ \case
+      (Just i, p')  -> (True, incPC 2 . putValue d i $ p')
+      (Nothing, p') -> (False, p')
 runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (4, s:_)), .. } =
-    (True,) . incPC 2 <$> putOutputProg (getValue s p) p
+    second (incPC 2) <$> putOutputProg (getValue s p) p
 runOpcode p@Prog{ memPostPC = (getOpcodeAndModes -> (5, c:d:_)), .. } =
     let jump = if getValue c p /= 0 then getValue d p - pc else 3 in
     return (True, incPC jump p)
@@ -138,8 +140,8 @@ runProgram :: ProgIO a => [Integer] -> a -> a
 runProgram = (runIdentity .) . runProgramM
 
 instance ProgIO ([Integer], [Integer]) where
-  getInput (~(i:is), os) = (i, (is, os))
-  putOutput o (is, os) = (is, os ++ [o])
+  getInput (~(i:is), os) = (Just i, (is, os))
+  putOutput o (is, os) = (True, (is, os ++ [o]))
 
 runProgramLists :: [Integer] -> [Integer] -> [Integer]
 runProgramLists p = snd . runProgram p . (, [])

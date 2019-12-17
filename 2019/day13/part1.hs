@@ -38,8 +38,8 @@ data Game = Game
   }
 
 instance ProgIO Game where
-  getInput = (0,)
-  putOutput o Game{..} = uncurry Game . readInstruction i o $ s
+  getInput = (Just 0,)
+  putOutput o Game{..} = (True, uncurry Game . readInstruction i o $ s)
 
 initialGame :: Game
 initialGame = Game

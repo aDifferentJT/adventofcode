@@ -84,18 +84,18 @@ instance MonadicProgIO Curses Game where
     liftIO . threadDelay $ frameTime
     key <- getEvent win (Just 0)
     case key of
-      Just (EventSpecialKey KeyLeftArrow)  -> return (-1, g)
-      Just (EventSpecialKey KeyRightArrow) -> return (1, g)
-      _                                    -> return (0, g)
+      Just (EventSpecialKey KeyLeftArrow)  -> return (Just (-1), g)
+      Just (EventSpecialKey KeyRightArrow) -> return (Just 1, g)
+      _                                    -> return (Just 0, g)
   getInputM g@Game{ autoplay = True, .. } = do
     liftIO . threadDelay $ frameTime
-    if | ballX <  paddleX -> return (-1, g)
-       | ballX == paddleX -> return (0, g)
-       | ballX >  paddleX -> return (1, g)
+    if | ballX <  paddleX -> return (Just (-1), g)
+       | ballX == paddleX -> return (Just 0, g)
+       | ballX >  paddleX -> return (Just 1, g)
   putOutputM o g@Game{..} = do
     let (g', a) = readInstruction _i o g
     a
-    return g'
+    return (True, g')
 
 initialGame :: Window -> Bool -> Int -> Game
 initialGame win autoplay fps = Game

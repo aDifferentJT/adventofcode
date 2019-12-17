@@ -57,23 +57,32 @@ moveForward r@Robot{ orientation = DirDown,  .. } = r { position = second (subtr
 moveForward r@Robot{ orientation = DirLeft,  .. } = r { position = first (subtract 1) position }
 
 instance ProgIO Robot where
-  getInput Robot{..} = (fromMaybe 0 . Map.lookup position $ panels, Robot{..})
+  getInput Robot{..} = (Just . fromMaybe 0 . Map.lookup position $ panels, Robot{..})
 
-  putOutput colour Robot{ nextInstruction = Paint, .. } = Robot
-    { panels = Map.insert position colour panels
-    , nextInstruction = Rotate
-    , ..
-    }
-  putOutput 0 Robot{ nextInstruction = Rotate, .. } = moveForward $ Robot
-    { orientation = rotateLeft orientation
-    , nextInstruction = Paint
-    , ..
-    }
-  putOutput 1 Robot{ nextInstruction = Rotate, .. } = moveForward $ Robot
-    { orientation = rotateRight orientation
-    , nextInstruction = Paint
-    , ..
-    }
+  putOutput colour Robot{ nextInstruction = Paint, .. } =
+    ( True
+    , Robot
+      { panels = Map.insert position colour panels
+      , nextInstruction = Rotate
+      , ..
+      }
+    )
+  putOutput 0 Robot{ nextInstruction = Rotate, .. } =
+    ( True
+    , moveForward $ Robot
+      { orientation = rotateLeft orientation
+      , nextInstruction = Paint
+      , ..
+      }
+    )
+  putOutput 1 Robot{ nextInstruction = Rotate, .. } =
+    ( True
+    , moveForward $ Robot
+      { orientation = rotateRight orientation
+      , nextInstruction = Paint
+      , ..
+      }
+    )
 
 countPaintedPanels :: Robot -> Int
 countPaintedPanels = Map.size . panels
