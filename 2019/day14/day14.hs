@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 
 import Control.Arrow ((***), (&&&), first, second)
 import Data.Map (Map)
@@ -42,35 +42,31 @@ divCeil x y =
   then q
   else q + 1
 
-calculateNeeded :: Map Chemical (Integer, [(Chemical, Integer)]) -> Map Chemical Integer -> Integer
-calculateNeeded rs needed =
+calculateNeeded' :: Map Chemical (Integer, [(Chemical, Integer)]) -> Map Chemical Integer -> Integer
+calculateNeeded' rs needed =
   case Map.maxViewWithKey needed of
     Just (((_, "ORE"), amountNeeded), _) -> amountNeeded
     Just ((chemical, amountNeeded), needed') ->
       let Just (amountProduced, reqs) = Map.lookup chemical rs in
-      calculateNeeded rs
+      calculateNeeded' rs
       . Map.unionWith (+) needed'
       . Map.fromList
       . map (second (* divCeil amountNeeded amountProduced))
       $ reqs
 
-consumeChemical :: Map String (Integer, [(String, Integer)]) -> String -> Integer -> Map String Integer -> Maybe (Map String Integer)
-consumeChemical rs chemical amountNeeded supplies =
-  let amountGot = fromMaybe 0 . Map.lookup chemical $ supplies in
-  if amountGot >= amountNeeded
-  then return . Map.adjust (subtract amountNeeded) chemical $ supplies
-  else makeChemical rs chemical supplies >>= consumeChemical rs chemical amountNeeded
-
-makeChemical :: Map String (Integer, [(String, Integer)]) -> String -> Map String Integer -> Maybe (Map String Integer)
-makeChemical rs chemical supplies = do
-  (amountProduced, reqs) <- Map.lookup chemical rs
-  supplies' <- foldr ((=<<) . uncurry (consumeChemical rs)) (return supplies) reqs
-  return . Map.insertWith (+) chemical amountProduced $ supplies'
-
-calculatePossible :: Map String (Integer, [(String, Integer)]) -> String -> Map String Integer -> Integer
-calculatePossible rs chemical supplies = case makeChemical rs chemical supplies of
-  Nothing -> 0
-  Just supplies' -> 1 + calculatePossible rs chemical supplies'
+binSearch :: Integral a => (a -> Ordering) -> a -> a -> a
+binSearch f x y
+  | x == y    =
+      case f x of
+        LT -> x - 1
+        EQ -> x
+        GT -> x
+  | otherwise =
+      let m = (x + y) `div` 2 in
+      case f m of
+        LT -> binSearch f x (m - 1)
+        EQ -> m
+        GT -> binSearch f (m + 1) y
 
 {-# NOINLINE reactions #-}
 reactions :: Map String (Integer, [(String, Integer)])
@@ -84,10 +80,27 @@ weights = Map.insert "ORE" 0 . Map.fromList . map (id &&& weightOfChemical) . Ma
           (+1) . maximum . map (fromJust . flip Map.lookup weights . fst) $ reqs
 
 weightedReactions :: Map Chemical (Integer, [(Chemical, Integer)])
-weightedReactions = Map.fromList . map ((fromJust . flip Map.lookup weights &&& id) *** (second . map . first $ fromJust . flip Map.lookup weights &&& id)) . Map.toList $ reactions
+weightedReactions =
+  Map.fromList
+  . map
+    (   (   fromJust . flip Map.lookup weights
+        &&& id
+        )
+    *** ( second
+        . map
+        . first
+        $ fromJust . flip Map.lookup weights &&& id
+        )
+    )
+  . Map.toList
+  $ reactions
+
+calculateNeeded :: Integer -> Integer
+calculateNeeded = calculateNeeded' weightedReactions . Map.fromList . (:[]) . ((fromJust . Map.lookup "FUEL" $ weights, "FUEL"),)
 
 main :: IO ()
 main = do
-  print . calculateNeeded weightedReactions . Map.fromList $ [((fromJust . Map.lookup "FUEL" $ weights, "FUEL"), 1)]
-  print . calculatePossible reactions "FUEL" . Map.fromList $ [("ORE", 1000000000000)]
+  let oreFor1 = calculateNeeded 1
+  print oreFor1
+  print $ binSearch (compare (10^12) . calculateNeeded) (10^12 `div` oreFor1) (10^13 `div` oreFor1)
 
