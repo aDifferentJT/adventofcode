@@ -3,3 +3,4 @@
 *.o
 *.dyn_hi
 *.dyn_o
+day[0-9]*
