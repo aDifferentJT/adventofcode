@@ -1,52 +1,65 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, LambdaCase #-}
+{-# LANGUAGE DataKinds, GeneralizedNewtypeDeriving, LambdaCase, RankNTypes #-}
 
-import Control.Applicative ((<|>))
-import Control.Arrow ((***))
-import Data.List (elemIndex, foldl', intercalate, uncons)
-import Data.List.Split (chunksOf)
+import Data.Bits ((.&.), shiftR)
+import Data.List (foldl')
 import Data.Maybe (fromJust)
-import Text.Parsec (choice, endBy, many1, try)
+import Math.NumberTheory.Moduli.Class (KnownNat, Mod, (^%), getVal, invertMod)
+import Text.Parsec (ParseError, choice, endBy, many1, try)
 import Text.Parsec.Char (digit, newline, space, string)
 import Text.Parsec.String (Parser, parseFromFile)
 
-zipListWith :: ([a] -> b) -> [[a]] -> [b]
-zipListWith f = maybe [] (uncurry (:) . (f *** zipListWith f) . unzip) . sequence . map uncons 
+data Func m
+  = Add (Mod m)
+  | Mul (Mod m)
+  deriving (Eq, Show)
 
-newtype Card = Card Int
-  deriving (Enum, Eq, Num, Show)
+applyFunc :: KnownNat m => Mod m -> Func m -> Mod m
+applyFunc x (Add y) = x + y
+applyFunc x (Mul y) = x * y
 
-type Deck = [Card]
+applyFuncs :: KnownNat m => Mod m -> [Func m] -> Mod m
+applyFuncs = foldl' applyFunc
 
-factory :: Deck
-factory = [0..10006]
+simplify :: KnownNat m => [Func m] -> [Func m]
+simplify = simplify' True
+  where simplify' :: KnownNat m => Bool -> [Func m] -> [Func m]
+        simplify' _ (Add x : Add y : fs) = simplify $ Add (x + y) : fs
+        simplify' _ (Mul x : Mul y : fs) = simplify $ Mul (x * y) : fs
+        simplify' _ (Add x : Mul y : fs) = simplify $ Mul y : Add (x * y) : fs
+        simplify' True (Mul x : fs@(Add _ : _)) = simplify' False $ Mul x : simplify fs
+        simplify' _ fs = fs
 
-type Technique = Deck -> Deck
+invertFuncs :: KnownNat m => [Func m] -> [Func m]
+invertFuncs = simplify . reverse . map invert
+  where invert :: KnownNat m => Func m -> Func m
+        invert (Add n) = Add (-n)
+        invert (Mul n) = Mul . fromJust . invertMod $ n
 
-dealIntoNewStack :: Technique
-dealIntoNewStack = reverse
+replicateFuncs :: KnownNat m => Integer -> [Func m] -> [Func m]
+replicateFuncs 0 _ = []
+replicateFuncs n fs = simplify . concat $
+  [ if n .&. 1 == 1 then fs else []
+  , concat . replicate 2 $ replicateFuncs (n `shiftR` 1) fs
+  ]
 
-cut :: Int -> Technique
-cut n
-  | n >= 0    = (uncurry . flip $ (++)) . splitAt n
-  | otherwise = \deck -> cut (length deck + n) deck
+dealIntoNewStack :: KnownNat m => [Func m]
+dealIntoNewStack = [Add 1, Mul (-1)]
 
-dealWithIncrement :: Int -> Technique
-dealWithIncrement n = \deck ->
-  map fromJust
-  . zipListWith (foldl' (<|>) Nothing)
-  . chunksOf (length deck)
-  . concatMap ((: replicate (n - 1) Nothing) . Just)
-  $ deck
+cut :: KnownNat m => Mod m -> [Func m]
+cut n = [Add (-n)]
 
-parseInt :: Parser Int
-parseInt = do
+dealWithIncrement :: Mod m -> [Func m]
+dealWithIncrement n = [Mul n]
+
+parseInteger :: KnownNat m => Parser (Mod m)
+parseInteger = do
   s <- choice [string "-", return ""]
   ds <- many1 digit
-  return . read $ s ++ ds
+  return . fromInteger . read $ s ++ ds
 
-parseTechnique :: Parser Technique
-parseTechnique = foldl' (flip (.)) id <$> endBy parseTechnique' newline
-  where parseTechnique' :: Parser Technique
+parseTechnique :: KnownNat m => Parser [Func m]
+parseTechnique = simplify . concat <$> endBy parseTechnique' newline
+  where parseTechnique' :: KnownNat m => Parser [Func m]
         parseTechnique' = choice
           [ try $ do
               string "deal into new stack"
@@ -54,15 +67,16 @@ parseTechnique = foldl' (flip (.)) id <$> endBy parseTechnique' newline
           , try $ do
               string "cut"
               space
-              cut <$> parseInt
+              cut <$> parseInteger
           , try $ do
               string "deal with increment"
               space
-              dealWithIncrement <$> parseInt
+              dealWithIncrement <$> parseInteger
           ]
 
 main :: IO ()
-main = parseFromFile parseTechnique "input.txt" >>= \case
-  Left e -> print e
-  Right t -> print . fromJust . elemIndex (Card 2019) . t $ factory
+main = do
+  let fs () = either (error . show) id <$> parseFromFile parseTechnique "input.txt"
+  applyFuncs 2019 <$> (fs () :: IO [Func 10007]) >>= print
+  applyFuncs 2020 . replicateFuncs 101741582076661 . invertFuncs <$> (fs () :: IO [Func 119315717514047]) >>= print
 
